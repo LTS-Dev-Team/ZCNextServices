@@ -8,6 +8,7 @@ import {
   Attribute,
   Change,
   Client,
+  ConstraintViolationError,
   EqualityFilter,
   InvalidCredentialsError,
   OrFilter,
@@ -27,6 +28,10 @@ const AD_NETBIOS = process.env.AD_NETBIOS || "";
 const AD_BASE_DN = process.env.AD_BASE_DN || "DC=zewailcity,DC=local";
 const AD_CONNECT_TIMEOUT = parseInt(process.env.AD_CONNECT_TIMEOUT || "8000", 10);
 const AD_TIMEOUT = parseInt(process.env.AD_TIMEOUT || "20000", 10);
+const AD_MIN_PASSWORD_AGE_HOURS = parseInt(
+  process.env.AD_MIN_PASSWORD_AGE_HOURS || "24",
+  10
+);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -200,57 +205,115 @@ export async function changeADPassword(
     errors[0] ??
     lastErr;
 
-  const message =
-    lastErr instanceof Error ? lastErr.message : "An unexpected error occurred";
-  return { success: false, message: mapLDAPError(lastErr, message) };
+  return { success: false, message: mapLDAPError(lastErr) };
 }
 
-function mapLDAPError(err: unknown, msg: string): string {
-  console.log({msg})
-  if (err instanceof InvalidCredentialsError || err instanceof ResultCodeError) {
-    if (err.code === 49) {
-      return "Incorrect username or current password";
-    }
-    if (err.code === 53) {
-      return "No permission to change password — contact your system administrator";
-    }
-    if (err.code === 19) {
-      return "New password does not meet policy requirements (length, complexity, history)";
-    }
-    if (err.code === 32) {
-      return "User not found in Active Directory";
-    }
+function getErrorMessage(err: unknown): string {
+  console.log({err})
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function isUnicodePwdConstraintError(err: unknown, msg: string): boolean {
+  return (
+    err instanceof ConstraintViolationError ||
+    /0000052[dD]|unicodePwd|CONSTRAINT_ATT_TYPE/i.test(msg)
+  );
+}
+
+function mapPasswordPolicyError(): string {
+  const hours = AD_MIN_PASSWORD_AGE_HOURS;
+  const waitLabel =
+    hours >= 24 && hours % 24 === 0
+      ? `${hours / 24} day${hours > 24 ? "s" : ""}`
+      : `${hours} hour${hours !== 1 ? "s" : ""}`;
+
+  return (
+    `You cannot change your password yet. Wait at least ${waitLabel} after your last change, ` +
+    "Also you can use Reset Password."
+  );
+}
+
+/** Win32 subcode from AD bind/modify errors, e.g. "data 52e" → "52e" */
+function parseAdDataSubcode(text: string): string | null {
+  const match = text.match(/data\s+([0-9a-fA-F]+)/i);
+  return match ? match[1].toLowerCase() : null;
+}
+
+const AD_DATA_SUBCODE_MESSAGES: Record<string, string> = {
+  // ERROR_LOGON_FAILURE
+  "52e": "Incorrect username or current password",
+  // ERROR_PASSWORD_RESTRICTION (complexity, history, or minimum age)
+  "52d": mapPasswordPolicyError(),
+  // ERROR_PASSWORD_EXPIRED
+  "532": "Your password has expired — Use Reset Password Request instead",
+  // ERROR_ACCOUNT_DISABLED
+  "533": "Account is disabled — Use Reset Password Request instead",
+  // ERROR_ACCOUNT_LOCKED
+  "775": "Account is locked — Use Reset Password Request instead",
+};
+
+function mapLDAPError(err: unknown): string {
+  const msg = getErrorMessage(err);
+  const ldapCode = err instanceof ResultCodeError ? err.code : undefined;
+
+  const subcode = parseAdDataSubcode(msg);
+  if (subcode && AD_DATA_SUBCODE_MESSAGES[subcode]) {
+    return AD_DATA_SUBCODE_MESSAGES[subcode];
   }
 
-  if (msg.includes("current password")) return msg;
-  if (msg.includes("not found")) return "User not found in Active Directory";
-  if (
-    msg.includes("Invalid Credentials") ||
-    msg.includes("Invalid credentials") ||
-    msg.includes("AcceptSecurityContext") ||
-    msg.includes("80090308") ||
-    msg.includes("00000056")
-  )
+  if (isUnicodePwdConstraintError(err, msg)) {
+    return mapPasswordPolicyError();
+  }
+
+  if (ldapCode === 49 || err instanceof InvalidCredentialsError) {
     return "Incorrect username or current password";
-  if (
-    msg.includes("timeout") ||
-    msg.includes("Timeout") ||
-    msg.includes("ECONNREFUSED") ||
-    msg.includes("ETIMEDOUT") ||
-    msg.includes("ENOTFOUND")
-  )
-    return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
-  if (msg.includes("connect"))
-    return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
-  if (msg.includes("closed"))
-    return "Connection to Active Directory was lost — please try again";
-  if (msg.includes("0000052D") || msg.includes("password does not meet"))
+  }
+  if (ldapCode === 19) {
     return "New password does not meet policy requirements (length, complexity, history)";
-  if (msg.includes("0000775"))
-    return "Account is locked — contact your system administrator";
-  if (msg.includes("00000533"))
-    return "Account is disabled — contact your system administrator";
-  if (msg.includes("00002028") || msg.includes("insufficient access"))
-    return "No permission to change password — contact your system administrator";
-  return `Error: ${msg}`;
+  }
+  if (ldapCode === 53) {
+    return "No permission to change password — Use Reset Password Request instead";
+  }
+  if (ldapCode === 32) {
+    return "User not found in Active Directory";
+  }
+  if (ldapCode === 81) {
+    return "Network error — Use Reset Password Request instead";
+  }
+
+  if (/password does not meet/i.test(msg)) {
+    return mapPasswordPolicyError();
+  }
+  if (/00000775|account.*locked/i.test(msg)) {
+    return "Account is locked — Use Reset Password Request instead";
+  }
+  if (/00000533|account.*disabled/i.test(msg)) {
+    return "Account is disabled — Use Reset Password Request instead";
+  }
+  if (/00000532|password.*expired/i.test(msg)) {
+    return "Your password has expired — Use Reset Password Request instead";
+  }
+  if (
+    /AcceptSecurityContext|80090308|Invalid Credentials|Invalid credentials|00000056/i.test(
+      msg
+    )
+  ) {
+    return "Incorrect username or current password";
+  }
+
+  if (msg.includes("not found")) {
+    return "User not found in Active Directory";
+  }
+  if (isNetworkError(err)) {
+    return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
+  }
+  if (msg.includes("closed")) {
+    return "Connection to Active Directory was lost — please try again";
+  }
+  if (msg.includes("insufficient access") || msg.includes("00002028")) {
+    return "No permission to change password — Use Reset Password Request instead";
+  }
+
+  return "Password change failed — please try again or use Reset Password";
 }
