@@ -5,6 +5,9 @@ export const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "https://zcltsdev.com",
   "https://zc-lt.com",
+  "https://zcportal.zc-lt.com",
+  "https://portal.zewailcity.edu.eg",
+
 ] as const;
 
 const ALLOWED_REQUEST_HEADERS = "Content-Type, Authorization";
