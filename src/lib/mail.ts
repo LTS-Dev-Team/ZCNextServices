@@ -1,11 +1,11 @@
 import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
-const SMTP_HOST = process.env.SMTP_HOST || "";
+const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
 const SMTP_SECURE = process.env.SMTP_SECURE === "true";
-const SMTP_USER = process.env.SMTP_USER || "";
-const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "").replace(/\s/g, "");
+const SMTP_USER = process.env.SMTP_USER || "learningtechnologies@zewailcity.edu.eg";
+const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "kzouecddkhuelloa").replace(/\s/g, "");
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 
 function hasSmtpAuth(): boolean {
