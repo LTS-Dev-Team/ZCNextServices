@@ -32,7 +32,7 @@ function createTransport() {
     host: SMTP_HOST,
     port: SMTP_PORT,
     secure: SMTP_SECURE,
-    auth: hasSmtpAuth() ? { user: 'learningtechnologies@zewailcity.edu.eg', pass: 'ZC_LtsDev_24' } : undefined,
+    auth: hasSmtpAuth() ? { user: 'ltsdevteam@zewailcity.edu.eg', pass: 'ZC_LtsDev_24' } : undefined,
   };
 
   // Gmail on port 587 uses STARTTLS (secure: false)
