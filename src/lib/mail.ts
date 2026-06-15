@@ -5,7 +5,7 @@ const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
 const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
 const SMTP_SECURE = process.env.SMTP_SECURE === "true";
 const SMTP_USER = process.env.SMTP_USER || "learningtechnologies@zewailcity.edu.eg";
-const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "kzouecddkhuelloa").replace(/\s/g, "");
+const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "owqd kpuq iocc eluf").replace(/\s/g, "");
 const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
 
 function hasSmtpAuth(): boolean {
@@ -29,14 +29,11 @@ function createTransport() {
   }
 
   const options: SMTPTransport.Options = {
-    host: "smtp.gmail.com",
-    port: 465,
-    secure: true,
-      auth: {
-      user: "learningtechnologies@zewailcity.edu.eg",
-      pass: "kzouecddkhuelloa",
-    },
-    };
+    host: SMTP_HOST,
+    port: SMTP_PORT,
+    secure: SMTP_SECURE,
+    auth: hasSmtpAuth() ? { user: SMTP_USER, pass: SMTP_PASSWORD } : undefined,
+  };
 
   // Gmail on port 587 uses STARTTLS (secure: false)
   if (isGmailHost(SMTP_HOST) && SMTP_PORT === 587) {
