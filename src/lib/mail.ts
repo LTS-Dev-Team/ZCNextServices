@@ -29,11 +29,14 @@ function createTransport() {
   }
 
   const options: SMTPTransport.Options = {
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
-    auth: hasSmtpAuth() ? { user: SMTP_USER, pass: SMTP_PASSWORD } : undefined,
-  };
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+      auth: {
+      user: "learningtechnologies@zewailcity.edu.eg",
+      pass: "kzouecddkhuelloa",
+    },
+    };
 
   // Gmail on port 587 uses STARTTLS (secure: false)
   if (isGmailHost(SMTP_HOST) && SMTP_PORT === 587) {
