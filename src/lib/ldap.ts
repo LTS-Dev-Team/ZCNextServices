@@ -210,22 +210,22 @@ async function attemptResetOnHost(
       };
     }
 
-    // await client.modify(user.dn, [
-    //   new Change({
-    //     operation: "replace",
-    //     modification: new Attribute({
-    //       type: "unicodePwd",
-    //       values: [encodePassword(newPassword)],
-    //     }),
-    //   }),
-    //   new Change({
-    //     operation: "replace",
-    //     modification: new Attribute({
-    //       type: "lockoutTime",
-    //       values: ["0"],
-    //     }),
-    //   }),
-    // ]);
+    await client.modify(user.dn, [
+      new Change({
+        operation: "replace",
+        modification: new Attribute({
+          type: "unicodePwd",
+          values: [encodePassword(newPassword)],
+        }),
+      }),
+      new Change({
+        operation: "replace",
+        modification: new Attribute({
+          type: "lockoutTime",
+          values: ["0"],
+        }),
+      }),
+    ]);
 
     return {
       success: true,
