@@ -209,23 +209,51 @@ async function attemptResetOnHost(
         code: "no_email",
       };
     }
-
-    await client.modify(user.dn, [
-      new Change({
-        operation: "replace",
-        modification: new Attribute({
-          type: "unicodePwd",
-          values: [encodePassword(newPassword)],
-        }),
+    const passwordChange = new Change({
+      operation: "replace",
+      modification: new Attribute({
+        type: "unicodePwd",
+        values: [encodePassword(newPassword)],
       }),
-      new Change({
-        operation: "replace",
-        modification: new Attribute({
-          type: "lockoutTime",
-          values: ["0"],
-        }),
+    });
+    
+    const unlockChange = new Change({
+      operation: "replace",
+      modification: new Attribute({
+        type: "lockoutTime",
+        values: ["0"],
       }),
-    ]);
+    });
+    
+    try {
+      await client.modify(user.dn, [passwordChange]);
+      console.log("unicodePwd SUCCESS");
+    } catch (err) {
+      console.log("unicodePwd FAILED", err);
+    }
+    
+    try {
+      await client.modify(user.dn, [unlockChange]);
+      console.log("lockoutTime SUCCESS");
+    } catch (err) {
+      console.log("lockoutTime FAILED", err);
+    }
+    // await client.modify(user.dn, [
+    //   new Change({
+    //     operation: "replace",
+    //     modification: new Attribute({
+    //       type: "unicodePwd",
+    //       values: [encodePassword(newPassword)],
+    //     }),
+    //   }),
+    //   new Change({
+    //     operation: "replace",
+    //     modification: new Attribute({
+    //       type: "lockoutTime",
+    //       values: ["0"],
+    //     }),
+    //   }),
+    // ]);
 
     return {
       success: true,
