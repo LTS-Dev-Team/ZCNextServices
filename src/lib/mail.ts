@@ -1,22 +1,32 @@
 import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport";
 
-const SMTP_HOST = process.env.SMTP_HOST || "smtp.gmail.com";
-const SMTP_PORT = parseInt(process.env.SMTP_PORT || "587", 10);
-const SMTP_SECURE = process.env.SMTP_SECURE === "true";
-const SMTP_USER = process.env.SMTP_USER || "learningtechnologies@zewailcity.edu.eg";
-const SMTP_PASSWORD = (process.env.SMTP_PASSWORD || "owqd kpuq iocc eluf").replace(/\s/g, "");
-const SMTP_FROM = process.env.SMTP_FROM || SMTP_USER;
+interface SmtpConfig {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  from: string;
+}
 
-function hasSmtpAuth(): boolean {
-  return Boolean(SMTP_USER && SMTP_PASSWORD);
+function readSmtpConfig(): SmtpConfig | null {
+  const host = process.env.SMTP_HOST?.trim() || "smtp.gmail.com";
+  const port = parseInt(process.env.SMTP_PORT || "587", 10);
+  const secure = process.env.SMTP_SECURE === "true";
+  const user = process.env.SMTP_USER?.trim() || "";
+  const password = (process.env.SMTP_PASSWORD || "").replace(/\s/g, "");
+  const from = process.env.SMTP_FROM?.trim() || user;
+
+  if (!host || !from) return null;
+  if (Boolean(user) !== Boolean(password)) return null;
+  if (!user || !password) return null;
+
+  return { host, port, secure, user, password, from };
 }
 
 export function isMailConfigured(): boolean {
-  if (!SMTP_HOST || !SMTP_FROM) return false;
-  // Both user and password must be set together, or neither (IP-relay mode).
-  if (Boolean(SMTP_USER) !== Boolean(SMTP_PASSWORD)) return false;
-  return true;
+  return readSmtpConfig() !== null;
 }
 
 function isGmailHost(host: string): boolean {
@@ -24,19 +34,20 @@ function isGmailHost(host: string): boolean {
 }
 
 function createTransport() {
-  if (!isMailConfigured()) {
+  const config = readSmtpConfig();
+  if (!config) {
     throw new Error("Email is not configured on the server");
   }
 
   const options: SMTPTransport.Options = {
-    host: SMTP_HOST,
-    port: SMTP_PORT,
-    secure: SMTP_SECURE,
-    auth: hasSmtpAuth() ? { user: 'ltsdevteam@zewailcity.edu.eg', pass: 'ZC_LtsDev_24' } : undefined,
+    host: config.host,
+    port: config.port,
+    secure: config.secure,
+    auth: { user: config.user, pass: config.password },
   };
 
   // Gmail on port 587 uses STARTTLS (secure: false)
-  if (isGmailHost(SMTP_HOST) && SMTP_PORT === 587) {
+  if (isGmailHost(config.host) && config.port === 587) {
     options.secure = false;
     options.requireTLS = true;
   }
@@ -54,6 +65,11 @@ export interface ResetPasswordEmailParams {
 export async function sendResetPasswordEmail(
   params: ResetPasswordEmailParams
 ): Promise<void> {
+  const config = readSmtpConfig();
+  if (!config) {
+    throw new Error("Email is not configured on the server");
+  }
+
   const { to, displayName, username, newPassword } = params;
   const transport = createTransport();
   const subject = "Your Active Directory password has been reset";
@@ -81,13 +97,26 @@ export async function sendResetPasswordEmail(
     <p style="color:#666;font-size:13px">If you did not request this reset, contact IT support immediately.</p>
   `;
 
-  await transport.sendMail({
-    from: SMTP_FROM,
-    to,
-    subject,
-    text,
-    html,
-  });
+  try {
+    await transport.sendMail({
+      from: config.from,
+      to,
+      subject,
+      text,
+      html,
+    });
+  } catch (err) {
+    const authUser = config.user;
+    const message =
+      err instanceof Error &&
+      "code" in err &&
+      (err as NodeJS.ErrnoException).code === "EAUTH"
+        ? `SMTP authentication failed for ${authUser}. Check SMTP_USER and SMTP_PASSWORD in the production environment.`
+        : err instanceof Error
+          ? err.message
+          : "Failed to send email";
+    throw new Error(message, { cause: err });
+  }
 }
 
 function escapeHtml(value: string): string {
