@@ -27,7 +27,7 @@ function createTransport() {
   if (!isMailConfigured()) {
     throw new Error("Email is not configured on the server");
   }
-  
+
   const options: SMTPTransport.Options = {
     host: SMTP_HOST,
     port: SMTP_PORT,
@@ -56,7 +56,6 @@ export async function sendResetPasswordEmail(
 ): Promise<void> {
   const { to, displayName, username, newPassword } = params;
   const transport = createTransport();
-
   const subject = "Your Active Directory password has been reset";
   const text = [
     `Hello ${displayName},`,

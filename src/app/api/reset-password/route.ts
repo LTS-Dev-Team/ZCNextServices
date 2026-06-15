@@ -98,7 +98,6 @@ export async function POST(req: NextRequest) {
 
   const newPassword = generateSecurePassword();
   const result = await resetADPassword(identity.adUsername, newPassword);
-
   if (!result.success) {
     return applyCorsHeaders(
       req,
@@ -108,9 +107,9 @@ export async function POST(req: NextRequest) {
 
   try {
     await sendResetPasswordEmail({
-      to: identity.email,
-      displayName: identity.displayName,
-      username: identity.adUsername,
+      to: result.user?.email || "",
+      displayName: result.user?.displayName || "",
+      username: result.user?.username || "",
       newPassword,
     });
   } catch (err) {

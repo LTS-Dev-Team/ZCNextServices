@@ -198,7 +198,6 @@ async function attemptResetOnHost(
   try {
     await bindAsServiceAccount(client);
     const user = await searchUserRecord(client, username);
-    console.log("user", user);
     if (!user) {
       return { success: false, message: "User not found in Active Directory", code: "not_found" };
     }
@@ -305,7 +304,6 @@ export async function resetADPassword(
       code: "not_configured",
     };
   }
-  console.log("resetADPassword", AD_SERVICE_USER, AD_SERVICE_PASSWORD);
 
   const normalized = normalizeUsername(username);
   if (!normalized) {
@@ -376,7 +374,6 @@ export async function changeADPassword(
 }
 
 function getErrorMessage(err: unknown): string {
-  console.log({err})
   if (err instanceof Error) return err.message;
   return String(err);
 }
@@ -488,7 +485,6 @@ function mapLDAPError(err: unknown): string {
 function mapResetLDAPError(err: unknown): string {
   const msg = getErrorMessage(err);
   const ldapCode = err instanceof ResultCodeError ? err.code : undefined;
-  console.log("mapResetLDAPError", msg, ldapCode);
   if (msg.includes("service account is not configured")) {
     return "Password reset is not configured on the server";
   }
