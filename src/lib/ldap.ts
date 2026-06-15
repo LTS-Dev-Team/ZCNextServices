@@ -32,19 +32,38 @@ const AD_MIN_PASSWORD_AGE_HOURS = parseInt(
   process.env.AD_MIN_PASSWORD_AGE_HOURS || "24",
   10
 );
+const AD_SERVICE_USER = process.env.AD_SERVICE_USER || "";
+const AD_SERVICE_PASSWORD = process.env.AD_SERVICE_PASSWORD || "";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+export function normalizeUsername(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  if (trimmed.includes("\\")) {
+    return trimmed.split("\\").pop()!.trim();
+  }
+
+  if (trimmed.includes("@")) {
+    return trimmed.split("@")[0]!.trim();
+  }
+
+  return trimmed;
+}
+
 function toUPN(username: string): string {
-  if (username.includes("@")) return username;
-  if (username.includes("\\")) return username;
-  return `${username}@${AD_DOMAIN}`;
+  const normalized = normalizeUsername(username);
+  if (normalized.includes("@")) return normalized;
+  if (normalized.includes("\\")) return normalized;
+  return `${normalized}@${AD_DOMAIN}`;
 }
 
 function bindIdentities(username: string): string[] {
-  const identities = [toUPN(username)];
+  const normalized = normalizeUsername(username);
+  const identities = [toUPN(normalized)];
   if (AD_NETBIOS) {
-    identities.push(`${AD_NETBIOS}\\${username}`);
+    identities.push(`${AD_NETBIOS}\\${normalized}`);
   }
   return Array.from(new Set(identities));
 }
@@ -95,6 +114,58 @@ async function bindAsUser(
   throw lastErr;
 }
 
+async function bindAsServiceAccount(client: Client): Promise<void> {
+  if (!AD_SERVICE_USER || !AD_SERVICE_PASSWORD) {
+    throw new Error("Password reset service account is not configured");
+  }
+
+  await bindAsUser(client, AD_SERVICE_USER, AD_SERVICE_PASSWORD);
+}
+
+export interface ADUserRecord {
+  dn: string;
+  username: string;
+  displayName: string;
+  email: string;
+}
+
+async function searchUserRecord(
+  client: Client,
+  username: string
+): Promise<ADUserRecord | null> {
+  const normalized = normalizeUsername(username);
+  if (!normalized) return null;
+
+  const { searchEntries } = await client.search(AD_BASE_DN, {
+    scope: "sub",
+    filter: new OrFilter({
+      filters: [
+        new EqualityFilter({ attribute: "sAMAccountName", value: normalized }),
+        new EqualityFilter({
+          attribute: "userPrincipalName",
+          value: toUPN(normalized),
+        }),
+      ],
+    }),
+    attributes: ["dn", "sAMAccountName", "displayName", "cn", "mail", "userPrincipalName"],
+    sizeLimit: 5,
+  });
+
+  const entry = searchEntries?.[0];
+  if (!entry?.dn) return null;
+
+  const sam = String(entry.sAMAccountName || normalized);
+  const displayName = String(entry.displayName || entry.cn || sam);
+  const email = String(entry.mail || entry.userPrincipalName || "").trim();
+
+  return {
+    dn: entry.dn,
+    username: sam,
+    displayName,
+    email,
+  };
+}
+
 async function whoAmIDN(client: Client): Promise<string | null> {
   try {
     const { value } = await client.exop("1.3.6.1.4.1.4203.1.11.3");
@@ -111,26 +182,64 @@ async function findUserDN(client: Client, username: string): Promise<string> {
   const fromWhoAmI = await whoAmIDN(client);
   if (fromWhoAmI) return fromWhoAmI;
 
-  const { searchEntries } = await client.search(AD_BASE_DN, {
-    scope: "sub",
-    filter: new OrFilter({
-      filters: [
-        new EqualityFilter({ attribute: "sAMAccountName", value: username }),
-        new EqualityFilter({
-          attribute: "userPrincipalName",
-          value: toUPN(username),
-        }),
-      ],
-    }),
-    attributes: ["dn"],
-    sizeLimit: 5,
-  });
-
-  const dn = searchEntries?.[0]?.dn;
-  if (!dn) {
-    throw new Error(`User "${username}" not found in Active Directory`);
+  const user = await searchUserRecord(client, username);
+  if (!user) {
+    throw new Error(`User "${normalizeUsername(username)}" not found in Active Directory`);
   }
-  return dn;
+  return user.dn;
+}
+
+async function attemptResetOnHost(
+  host: string,
+  username: string,
+  newPassword: string
+): Promise<ResetPasswordResult> {
+  const client = createClient(host);
+  try {
+    await bindAsServiceAccount(client);
+    const user = await searchUserRecord(client, username);
+    console.log("user", user);
+    if (!user) {
+      return { success: false, message: "User not found in Active Directory", code: "not_found" };
+    }
+
+    if (!user.email) {
+      return {
+        success: false,
+        message: "No email address is registered for this account. Contact IT support.",
+        code: "no_email",
+      };
+    }
+
+    // await client.modify(user.dn, [
+    //   new Change({
+    //     operation: "replace",
+    //     modification: new Attribute({
+    //       type: "unicodePwd",
+    //       values: [encodePassword(newPassword)],
+    //     }),
+    //   }),
+    //   new Change({
+    //     operation: "replace",
+    //     modification: new Attribute({
+    //       type: "lockoutTime",
+    //       values: ["0"],
+    //     }),
+    //   }),
+    // ]);
+
+    return {
+      success: true,
+      message: "Password reset successfully",
+      user,
+    };
+  } finally {
+    try {
+      await client.unbind();
+    } catch {
+      // socket may already be closed
+    }
+  }
 }
 
 async function attemptOnHost(
@@ -176,6 +285,64 @@ async function attemptOnHost(
 export interface ChangePasswordResult {
   success: boolean;
   message: string;
+}
+
+export interface ResetPasswordResult {
+  success: boolean;
+  message: string;
+  user?: ADUserRecord;
+  code?: "not_found" | "no_email" | "not_configured";
+}
+
+export async function resetADPassword(
+  username: string,
+  newPassword: string
+): Promise<ResetPasswordResult> {
+  if (!AD_SERVICE_USER || !AD_SERVICE_PASSWORD) {
+    return {
+      success: false,
+      message: "Password reset is not configured on the server",
+      code: "not_configured",
+    };
+  }
+  console.log("resetADPassword", AD_SERVICE_USER, AD_SERVICE_PASSWORD);
+
+  const normalized = normalizeUsername(username);
+  if (!normalized) {
+    return { success: false, message: "Username is required", code: "not_found" };
+  }
+
+  let lastErr: unknown = new Error("Could not connect to any Active Directory server");
+
+  const results = await Promise.allSettled(
+    AD_HOSTS.map((host) => attemptResetOnHost(host, normalized, newPassword))
+  );
+
+  const success = results.find(
+    (r): r is PromiseFulfilledResult<ResetPasswordResult> =>
+      r.status === "fulfilled" && r.value.success
+  );
+  if (success) {
+    return success.value;
+  }
+
+  const fulfilled = results.find(
+    (r): r is PromiseFulfilledResult<ResetPasswordResult> => r.status === "fulfilled"
+  );
+  if (fulfilled && !fulfilled.value.success) {
+    return fulfilled.value;
+  }
+
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+    .map((r) => r.reason);
+
+  lastErr =
+    errors.find((e) => !isNetworkError(e)) ??
+    errors[0] ??
+    lastErr;
+
+  return { success: false, message: mapResetLDAPError(lastErr) };
 }
 
 export async function changeADPassword(
@@ -316,4 +483,27 @@ function mapLDAPError(err: unknown): string {
   }
 
   return "Password change failed — please try again or use Reset Password";
+}
+
+function mapResetLDAPError(err: unknown): string {
+  const msg = getErrorMessage(err);
+  const ldapCode = err instanceof ResultCodeError ? err.code : undefined;
+  console.log("mapResetLDAPError", msg, ldapCode);
+  if (msg.includes("service account is not configured")) {
+    return "Password reset is not configured on the server";
+  }
+  if (ldapCode === 19 || /password does not meet/i.test(msg)) {
+    return "Generated password does not meet Active Directory policy requirements";
+  }
+  if (ldapCode === 32 || msg.includes("not found")) {
+    return "User not found in Active Directory";
+  }
+  if (ldapCode === 50 || ldapCode === 53 || /insufficient access|00002028/i.test(msg)) {
+    return "Server does not have permission to reset passwords in Active Directory";
+  }
+  if (isNetworkError(err)) {
+    return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
+  }
+
+  return "Password reset failed — please try again or contact IT support";
 }

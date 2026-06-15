@@ -1,4 +1,4 @@
-import PasswordForm from "@/components/PasswordForm";
+import PasswordPortal from "@/components/PasswordPortal";
 
 export default function Home() {
   return (
@@ -12,7 +12,7 @@ export default function Home() {
         background: "linear-gradient(160deg, #f0fbfd 0%, #e8f4f6 50%, #f5f5f5 100%)",
       }}
     >
-      <PasswordForm />
+      <PasswordPortal />
     </main>
   );
 }
