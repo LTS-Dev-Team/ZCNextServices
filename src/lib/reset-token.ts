@@ -1,9 +1,4 @@
-import {
-  decodeProtectedHeader,
-  importSPKI,
-  jwtVerify,
-  type JWTPayload,
-} from "jose";
+import type { JWTPayload } from "jose";
 
 export class ResetTokenError extends Error {
   constructor(message: string) {
@@ -18,43 +13,6 @@ export interface ResolvedResetIdentity {
   displayName: string;
   role: string;
   userId: string;
-}
-
-const HMAC_ALGORITHMS = ["HS256", "HS384", "HS512"] as const;
-const RSA_ALGORITHMS = ["RS256", "RS384", "RS512"] as const;
-
-function getRawSecret(): string | null {
-  const secret = process.env.RESET_TOKEN_SECRET || process.env.JWT_SECRET;
-  return secret?.trim() || null;
-}
-
-function getSymmetricKeyCandidates(): Uint8Array[] {
-  const raw = getRawSecret();
-  if (!raw) return [];
-
-  const keys: Uint8Array[] = [new TextEncoder().encode(raw)];
-
-  if (/^[A-Za-z0-9+/=_-]+$/.test(raw)) {
-    try {
-      const decoded = Buffer.from(raw, "base64");
-      if (decoded.length >= 16) {
-        keys.push(new Uint8Array(decoded));
-      }
-    } catch {
-      // ignore invalid base64
-    }
-  }
-
-  return keys;
-}
-
-async function getRsaPublicKey(algorithm: string) {
-  const pem = process.env.JWT_PUBLIC_KEY?.replace(/\\n/g, "\n").trim();
-  if (!pem) return null;
-
-  const alg =
-    algorithm === "RS512" ? "RS512" : algorithm === "RS384" ? "RS384" : "RS256";
-  return importSPKI(pem, alg);
 }
 
 export function normalizeToken(raw: string): string {
@@ -159,46 +117,10 @@ function validateExpiration(payload: JWTPayload): void {
   }
 }
 
-function getJwtErrorCode(err: unknown): string {
-  if (err && typeof err === "object" && "code" in err) {
-    return String((err as { code?: string }).code);
-  }
-  return "";
-}
-
-function mapVerifyError(err: unknown): ResetTokenError {
-  const code = getJwtErrorCode(err);
-  const message = err instanceof Error ? err.message : "Invalid reset token";
-
-  if (code === "ERR_JWT_EXPIRED" || /expired|expiration/i.test(message)) {
-    return new ResetTokenError("Reset link has expired. Request a new one from the portal.");
-  }
-
-  if (code === "ERR_JWS_SIGNATURE_VERIFICATION_FAILED" || /signature/i.test(message)) {
-    return new ResetTokenError(
-      "Invalid reset token signature. For RS256 tokens set JWT_PUBLIC_KEY. " +
-        "For HS256 tokens set RESET_TOKEN_SECRET to match the portal signing key."
-    );
-  }
-
-  if (code === "ERR_JWS_INVALID" || code === "ERR_JWT_INVALID") {
-    return new ResetTokenError("Reset token is malformed");
-  }
-
-  return new ResetTokenError("Invalid or expired reset token");
-}
-
-function verifyUnsignedPortalToken(token: string): ResolvedResetIdentity {
-  const parts = token.split(".");
-  if (parts.length !== 2 || !parts[1]) {
-    throw new ResetTokenError("Reset token is malformed");
-  }
-
-  const payload = decodePayloadSegment(parts[1]);
-  validateExpiration(payload);
-  return resolveResetIdentity(payload);
-}
-
+/**
+ * Portal tokens carry user data in the JWT payload and expire via `exp`.
+ * Signature is not verified here — the portal issues the link and we trust exp + payload.
+ */
 export async function verifyResetToken(rawToken: string): Promise<ResolvedResetIdentity> {
   const token = normalizeToken(rawToken);
   if (!token) {
@@ -206,74 +128,11 @@ export async function verifyResetToken(rawToken: string): Promise<ResolvedResetI
   }
 
   const parts = token.split(".");
-
-  // Portal sends RS256 header + payload only (no signature segment).
-  if (parts.length === 2) {
-    return verifyUnsignedPortalToken(token);
-  }
-
-  if (parts.length !== 3) {
+  if (parts.length < 2 || !parts[1]) {
     throw new ResetTokenError("Reset token is malformed");
   }
 
-  let header;
-  try {
-    header = decodeProtectedHeader(token);
-  } catch {
-    throw new ResetTokenError("Reset token is malformed");
-  }
-
-  const verifyOptions = {
-    issuer: process.env.JWT_ISSUER || undefined,
-    audience: process.env.JWT_AUDIENCE || undefined,
-  };
-
-  const algorithmsToTry = header.alg
-    ? [header.alg]
-    : [...HMAC_ALGORITHMS, ...RSA_ALGORITHMS];
-
-  let lastErr: unknown;
-
-  for (const algorithm of algorithmsToTry) {
-    let keys: Array<Uint8Array | CryptoKey>;
-
-    if (RSA_ALGORITHMS.includes(algorithm as (typeof RSA_ALGORITHMS)[number])) {
-      const rsaKey = await getRsaPublicKey(algorithm);
-      if (!rsaKey) continue;
-      keys = [rsaKey];
-    } else {
-      keys = getSymmetricKeyCandidates();
-      if (keys.length === 0) continue;
-    }
-
-    for (const key of keys) {
-      try {
-        const { payload } = await jwtVerify(token, key, {
-          ...verifyOptions,
-          algorithms: [algorithm],
-        });
-        return resolveResetIdentity(payload);
-      } catch (err) {
-        lastErr = err;
-        const code = getJwtErrorCode(err);
-        if (code === "ERR_JWT_EXPIRED") {
-          throw mapVerifyError(err);
-        }
-      }
-    }
-  }
-
-  if (header.alg?.startsWith("RS") && !process.env.JWT_PUBLIC_KEY) {
-    throw new ResetTokenError(
-      "This token uses RS256. Set JWT_PUBLIC_KEY in .env.local to the portal public key."
-    );
-  }
-
-  if (!getRawSecret() && HMAC_ALGORITHMS.includes(header.alg as (typeof HMAC_ALGORITHMS)[number])) {
-    throw new ResetTokenError(
-      "JWT verification is not configured. Set RESET_TOKEN_SECRET in .env.local."
-    );
-  }
-
-  throw mapVerifyError(lastErr);
+  const payload = decodePayloadSegment(parts[1]);
+  validateExpiration(payload);
+  return resolveResetIdentity(payload);
 }

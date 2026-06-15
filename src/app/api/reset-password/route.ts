@@ -88,7 +88,6 @@ export async function POST(req: NextRequest) {
   try {
     identity = await verifyResetToken(token);
   } catch (err) {
-    console.log("err", err);
     const message =
       err instanceof ResetTokenError ? err.message : "Invalid or expired reset token";
     return applyCorsHeaders(
