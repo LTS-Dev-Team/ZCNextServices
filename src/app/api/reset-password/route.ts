@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
     req,
     NextResponse.json({
       success: true,
-      message: `A new password has been sent to ${maskEmail(identity.email)}.`,
+      message: `A new password has been sent to ${maskEmail(result.user?.email || '')}.`,
     })
   );
 }
