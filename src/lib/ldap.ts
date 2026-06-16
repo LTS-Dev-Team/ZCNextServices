@@ -189,6 +189,34 @@ async function findUserDN(client: Client, username: string): Promise<string> {
   return user.dn;
 }
 
+async function replaceUnicodePwd(
+  client: Client,
+  userDN: string,
+  newPassword: string
+): Promise<void> {
+  await client.modify(userDN, [
+    new Change({
+      operation: "replace",
+      modification: new Attribute({
+        type: "unicodePwd",
+        values: [encodePassword(newPassword)],
+      }),
+    }),
+  ]);
+}
+
+async function unlockAccount(client: Client, userDN: string): Promise<void> {
+  await client.modify(userDN, [
+    new Change({
+      operation: "replace",
+      modification: new Attribute({
+        type: "lockoutTime",
+        values: ["0"],
+      }),
+    }),
+  ]);
+}
+
 async function attemptResetOnHost(
   host: string,
   username: string,
@@ -209,51 +237,26 @@ async function attemptResetOnHost(
         code: "no_email",
       };
     }
-    const passwordChange = new Change({
-      operation: "replace",
-      modification: new Attribute({
-        type: "unicodePwd",
-        values: [encodePassword(newPassword)],
-      }),
-    });
-    
-    const unlockChange = new Change({
-      operation: "replace",
-      modification: new Attribute({
-        type: "lockoutTime",
-        values: ["0"],
-      }),
-    });
-    
+
     try {
-      await client.modify(user.dn, [passwordChange]);
-      console.log("unicodePwd SUCCESS");
+      await replaceUnicodePwd(client, user.dn, newPassword);
     } catch (err) {
-      console.log("unicodePwd FAILED", err);
+      console.log({err})
+      return {
+        success: false,
+        message: mapResetLDAPError(err),
+      };
     }
-    
+
     try {
-      await client.modify(user.dn, [unlockChange]);
-      console.log("lockoutTime SUCCESS");
+      await unlockAccount(client, user.dn);
     } catch (err) {
-      console.log("lockoutTime FAILED", err);
+      console.log({err})
+      return {
+        success: false,
+        message: mapResetLDAPError(err),
+      };
     }
-    // await client.modify(user.dn, [
-    //   new Change({
-    //     operation: "replace",
-    //     modification: new Attribute({
-    //       type: "unicodePwd",
-    //       values: [encodePassword(newPassword)],
-    //     }),
-    //   }),
-    //   new Change({
-    //     operation: "replace",
-    //     modification: new Attribute({
-    //       type: "lockoutTime",
-    //       values: ["0"],
-    //     }),
-    //   }),
-    // ]);
 
     return {
       success: true,
