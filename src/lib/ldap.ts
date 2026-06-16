@@ -526,7 +526,7 @@ function mapResetLDAPError(err: unknown): string {
     return "User not found in Active Directory";
   }
   if (ldapCode === 50 || ldapCode === 53 || /insufficient access|00002028/i.test(msg)) {
-    return "Server does not have permission to reset passwords in Active Directory";
+    return "You Can't Reset Password for this account, Please contact IT support";
   }
   if (isNetworkError(err)) {
     return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
