@@ -272,6 +272,31 @@ async function attemptResetOnHost(
   }
 }
 
+async function attemptLoginOnHost(
+  host: string,
+  username: string,
+  password: string
+): Promise<LoginResult> {
+  const client = createClient(host);
+  try {
+    await bindAsUser(client, username, password);
+    const user = await searchUserRecord(client, username);
+    if (!user) {
+      return { success: false, message: "User not found in Active Directory" };
+    }
+
+    return { success: true, message: "Login successful", user };
+  } catch (err) {
+    return { success: false, message: mapLoginLDAPError(err) };
+  } finally {
+    try {
+      await client.unbind();
+    } catch {
+      // socket may already be closed
+    }
+  }
+}
+
 async function attemptOnHost(
   host: string,
   username: string,
@@ -315,6 +340,12 @@ async function attemptOnHost(
 export interface ChangePasswordResult {
   success: boolean;
   message: string;
+}
+
+export interface LoginResult {
+  success: boolean;
+  message: string;
+  user?: ADUserRecord;
 }
 
 export interface ResetPasswordResult {
@@ -372,6 +403,51 @@ export async function resetADPassword(
     lastErr;
 
   return { success: false, message: mapResetLDAPError(lastErr) };
+}
+
+export async function authenticateADUser(
+  username: string,
+  password: string
+): Promise<LoginResult> {
+  const normalized = normalizeUsername(username);
+  if (!normalized) {
+    return { success: false, message: "Username is required" };
+  }
+  if (!password) {
+    return { success: false, message: "Password is required" };
+  }
+
+  let lastErr: unknown = new Error("Could not connect to any Active Directory server");
+
+  const results = await Promise.allSettled(
+    AD_HOSTS.map((host) => attemptLoginOnHost(host, normalized, password))
+  );
+
+  const success = results.find(
+    (r): r is PromiseFulfilledResult<LoginResult> =>
+      r.status === "fulfilled" && r.value.success
+  );
+  if (success) {
+    return success.value;
+  }
+
+  const fulfilled = results.find(
+    (r): r is PromiseFulfilledResult<LoginResult> => r.status === "fulfilled"
+  );
+  if (fulfilled && !fulfilled.value.success) {
+    return fulfilled.value;
+  }
+
+  const errors = results
+    .filter((r): r is PromiseRejectedResult => r.status === "rejected")
+    .map((r) => r.reason);
+
+  lastErr =
+    errors.find((e) => !isNetworkError(e)) ??
+    errors[0] ??
+    lastErr;
+
+  return { success: false, message: mapLoginLDAPError(lastErr) };
 }
 
 export async function changeADPassword(
@@ -447,6 +523,36 @@ const AD_DATA_SUBCODE_MESSAGES: Record<string, string> = {
   // ERROR_ACCOUNT_LOCKED
   "775": "Account is locked — Use Reset Password Request instead",
 };
+
+function mapLoginLDAPError(err: unknown): string {
+  const msg = getErrorMessage(err);
+  const ldapCode = err instanceof ResultCodeError ? err.code : undefined;
+
+  const subcode = parseAdDataSubcode(msg);
+  if (subcode && AD_DATA_SUBCODE_MESSAGES[subcode]) {
+    return AD_DATA_SUBCODE_MESSAGES[subcode].replace(
+      " — Use Reset Password Request instead",
+      ""
+    );
+  }
+
+  if (ldapCode === 49 || err instanceof InvalidCredentialsError) {
+    return "Incorrect username or password";
+  }
+  if (ldapCode === 32 || msg.includes("not found")) {
+    return "User not found in Active Directory";
+  }
+  if (isNetworkError(err)) {
+    return "Cannot connect to Active Directory — make sure you are on the internal network or VPN";
+  }
+  if (msg.includes("closed")) {
+    return "Connection to Active Directory was lost — please try again";
+  }
+
+  return mapLDAPError(err)
+    .replace(" — Use Reset Password Request instead", "")
+    .replace("Incorrect username or current password", "Incorrect username or password");
+}
 
 function mapLDAPError(err: unknown): string {
   const msg = getErrorMessage(err);
