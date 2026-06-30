@@ -55,6 +55,26 @@ function createTransport() {
   return nodemailer.createTransport(options);
 }
 
+const AD_MIN_PASSWORD_AGE_HOURS = parseInt(
+  process.env.AD_MIN_PASSWORD_AGE_HOURS || "24",
+  10
+);
+
+function passwordChangeWaitLabel(): { en: string; ar: string } {
+  const hours = AD_MIN_PASSWORD_AGE_HOURS;
+  if (hours >= 24 && hours % 24 === 0) {
+    const days = hours / 24;
+    return {
+      en: days === 1 ? "1 day" : `${days} days`,
+      ar: days === 1 ? "يوم واحد" : `${days} أيام`,
+    };
+  }
+  return {
+    en: `${hours} hour${hours !== 1 ? "s" : ""}`,
+    ar: hours === 1 ? "ساعة واحدة" : `${hours} ساعات`,
+  };
+}
+
 const EMAIL_SIGNATURE_HTML = `
         <p style="margin:0 0 10px;font-size:14px;font-weight:500;">
           Best regards,
@@ -163,7 +183,10 @@ export async function sendResetPasswordEmail(
 
   const { to, displayName, username, newPassword } = params;
   const transport = createTransport();
-  const subject = "Your Active Directory password has been reset";
+  const wait = passwordChangeWaitLabel();
+  const subject =
+    "Your Active Directory password has been reset | تم إعادة تعيين كلمة مرور Active Directory";
+
   const text = [
     `Hello ${displayName},`,
     "",
@@ -174,19 +197,58 @@ export async function sendResetPasswordEmail(
     "",
     "Sign in with this password, then change it from the password change page if your account policy allows it.",
     "",
+    `Note: You can change your password after ${wait.en} from the time of this reset.`,
+    "",
     "If you did not request this reset, contact IT support immediately.",
+    "",
+    "────────────────────────────────",
+    "",
+    `مرحباً ${displayName}،`,
+    "",
+    "تم إعادة تعيين كلمة مرور Active Directory الخاصة بك كما طلبت.",
+    "",
+    `اسم المستخدم: ${username}`,
+    `كلمة المرور المؤقتة: ${newPassword}`,
+    "",
+    "سجّل الدخول باستخدام كلمة المرور هذه، ثم غيّرها من صفحة تغيير كلمة المرور إذا سمحت سياسة حسابك بذلك.",
+    "",
+    `ملاحظة: يمكنك تغيير كلمة المرور بعد ${wait.ar} من وقت إعادة التعيين هذه.`,
+    "",
+    "إذا لم تطلب إعادة التعيين هذه، تواصل مع دعم تقنية المعلومات فوراً.",
     EMAIL_SIGNATURE_TEXT,
   ].join("\n");
 
   const html = `
-    <p>Hello ${escapeHtml(displayName)},</p>
-    <p>Your Active Directory password has been reset as requested.</p>
-    <table style="border-collapse:collapse;margin:16px 0">
-      <tr><td style="padding:4px 12px 4px 0;color:#555">Username</td><td><strong>${escapeHtml(username)}</strong></td></tr>
-      <tr><td style="padding:4px 12px 4px 0;color:#555">Temporary password</td><td><strong>${escapeHtml(newPassword)}</strong></td></tr>
-    </table>
-    <p>Sign in with this password, then change it from the password change page if your account policy allows it.</p>
-    <p style="color:#666;font-size:13px">If you did not request this reset, contact IT support immediately.</p>
+    <div dir="ltr" style="font-family:Calibri,Arial,sans-serif;color:#222;">
+      <p>Hello ${escapeHtml(displayName)},</p>
+      <p>Your Active Directory password has been reset as requested.</p>
+      <table style="border-collapse:collapse;margin:16px 0">
+        <tr><td style="padding:4px 12px 4px 0;color:#555">Username</td><td><strong>${escapeHtml(username)}</strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#555">Temporary password</td><td><strong>${escapeHtml(newPassword)}</strong></td></tr>
+      </table>
+      <p>Sign in with this password, then change it from the password change page if your account policy allows it.</p>
+      <p style="margin:16px 0;padding:12px 14px;background:#f0f9fc;border-left:3px solid #1EACD1;font-size:14px;">
+        <strong>Note:</strong> You can change your password after ${escapeHtml(wait.en)} from the time of this reset.
+      </p>
+      <p style="color:#666;font-size:13px">If you did not request this reset, contact IT support immediately.</p>
+    </div>
+
+    <hr style="border:none;border-top:1px solid #ddd;margin:28px 0;" />
+
+    <div dir="rtl" style="font-family:Calibri,Arial,sans-serif;color:#222;text-align:right;">
+      <p>مرحباً ${escapeHtml(displayName)}،</p>
+      <p>تم إعادة تعيين كلمة مرور Active Directory الخاصة بك كما طلبت.</p>
+      <table style="border-collapse:collapse;margin:16px 0;width:100%;">
+        <tr><td style="padding:4px 0 4px 12px;color:#555;text-align:right;">اسم المستخدم</td><td style="text-align:right;"><strong>${escapeHtml(username)}</strong></td></tr>
+        <tr><td style="padding:4px 0 4px 12px;color:#555;text-align:right;">كلمة المرور المؤقتة</td><td style="text-align:right;"><strong>${escapeHtml(newPassword)}</strong></td></tr>
+      </table>
+      <p>سجّل الدخول باستخدام كلمة المرور هذه، ثم غيّرها من صفحة تغيير كلمة المرور إذا سمحت سياسة حسابك بذلك.</p>
+      <p style="margin:16px 0;padding:12px 14px;background:#f0f9fc;border-right:3px solid #1EACD1;font-size:14px;text-align:right;">
+        <strong>ملاحظة:</strong> يمكنك تغيير كلمة المرور بعد ${escapeHtml(wait.ar)} من وقت إعادة التعيين هذه.
+      </p>
+      <p style="color:#666;font-size:13px">إذا لم تطلب إعادة التعيين هذه، تواصل مع دعم تقنية المعلومات فوراً.</p>
+    </div>
+
     ${EMAIL_SIGNATURE_HTML}
   `;
 
