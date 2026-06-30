@@ -7,12 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { applyCorsHeaders, corsPreflightResponse } from "@/lib/cors";
 import { authenticateADUser } from "@/lib/ldap";
-
-export async function OPTIONS(req: NextRequest) {
-  return corsPreflightResponse(req);
-}
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = parseInt(process.env.RATE_LIMIT_RPM || "5", 10);
@@ -42,12 +37,9 @@ function getClientIP(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   const ip = getClientIP(req);
   if (isRateLimited(ip)) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Rate limit exceeded. Wait a minute and try again." },
-        { status: 429 }
-      )
+    return NextResponse.json(
+      { success: false, message: "Rate limit exceeded. Wait a minute and try again." },
+      { status: 429 }
     );
   }
 
@@ -55,39 +47,27 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 })
-    );
+    return NextResponse.json({ success: false, message: "Invalid request" }, { status: 400 });
   }
 
   const username = body.username?.trim();
   const password = body.password ?? "";
 
   if (!username || !password) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Username and password are required" },
-        { status: 400 }
-      )
+    return NextResponse.json(
+      { success: false, message: "Username and password are required" },
+      { status: 400 }
     );
   }
 
   const result = await authenticateADUser(username, password);
   if (!result.success || !result.user) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json({ success: false, message: result.message }, { status: 401 })
-    );
+    return NextResponse.json({ success: false, message: result.message }, { status: 401 });
   }
-  console.log("result", result);
-  return applyCorsHeaders(
-    req,
-    NextResponse.json({
-      success: true,
-      message: result.message,
-      user: result.user,
-    })
-  );
+
+  return NextResponse.json({
+    success: true,
+    message: result.message,
+    user: result.user,
+  });
 }

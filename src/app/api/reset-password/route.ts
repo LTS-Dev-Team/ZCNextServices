@@ -13,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { applyCorsHeaders, corsPreflightResponse } from "@/lib/cors";
 import { generateSecurePassword } from "@/lib/generate-password";
 import { resetADPassword } from "@/lib/ldap";
 import { isMailConfigured, sendResetPasswordEmail } from "@/lib/mail";
@@ -22,10 +21,6 @@ import {
   ResetTokenError,
   verifyResetToken,
 } from "@/lib/reset-token";
-
-export async function OPTIONS(req: NextRequest) {
-  return corsPreflightResponse(req);
-}
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = parseInt(process.env.RESET_RATE_LIMIT_RPM || "3", 10);
@@ -55,54 +50,40 @@ function getClientIP(req: NextRequest): string {
 export async function POST(req: NextRequest) {
   const ip = getClientIP(req);
   if (isRateLimited(ip)) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Rate limit exceeded. Wait a minute and try again." },
-        { status: 429 }
-      )
+    return NextResponse.json(
+      { success: false, message: "Rate limit exceeded. Wait a minute and try again." },
+      { status: 429 }
     );
   }
 
   if (!isMailConfigured()) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Password reset email is not configured on the server." },
-        { status: 503 }
-      )
+    return NextResponse.json(
+      { success: false, message: "Password reset email is not configured on the server." },
+      { status: 503 }
     );
   }
 
   const token = extractBearerToken(req.headers.get("authorization"));
   if (!token) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Missing Authorization Bearer token" },
-        { status: 401 }
-      )
+    return NextResponse.json(
+      { success: false, message: "Missing Authorization Bearer token" },
+      { status: 401 }
     );
   }
+
   let identity;
   try {
     identity = await verifyResetToken(token);
   } catch (err) {
     const message =
       err instanceof ResetTokenError ? err.message : "Invalid or expired reset token";
-    return applyCorsHeaders(
-      req,
-      NextResponse.json({ success: false, message }, { status: 401 })
-    );
+    return NextResponse.json({ success: false, message }, { status: 401 });
   }
 
   const newPassword = generateSecurePassword();
   const result = await resetADPassword(identity.adUsername, newPassword);
   if (!result.success) {
-    return applyCorsHeaders(
-      req,
-      NextResponse.json({ success: false, message: result.message }, { status: 400 })
-    );
+    return NextResponse.json({ success: false, message: result.message }, { status: 400 });
   }
 
   try {
@@ -114,22 +95,19 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     console.error("Failed to send reset password email:", err);
-    return applyCorsHeaders(
-      req,
-      NextResponse.json(
-        { success: false, message: "Password was reset but the email could not be sent. Contact IT support." },
-        { status: 500 }
-      )
+    return NextResponse.json(
+      {
+        success: false,
+        message: "Password was reset but the email could not be sent. Contact IT support.",
+      },
+      { status: 500 }
     );
   }
 
-  return applyCorsHeaders(
-    req,
-    NextResponse.json({
-      success: true,
-      message: `A new password has been sent to ${maskEmail(result.user?.email || '')}.`,
-    })
-  );
+  return NextResponse.json({
+    success: true,
+    message: `A new password has been sent to ${maskEmail(result.user?.email || "")}.`,
+  });
 }
 
 function maskEmail(email: string): string {
