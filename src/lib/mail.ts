@@ -195,7 +195,7 @@ export async function sendResetPasswordEmail(
     `Username: ${username}`,
     `Temporary password: ${newPassword}`,
     "",
-    "Sign in with this password, then change it from the password change page if your account policy allows it.",
+    "Sign in with this password. You can change it through the LTS System by navigating to Profile → Change Password.",
     "",
     `Note: You can change your password after ${wait.en} from the time of this reset.`,
     "",
@@ -210,7 +210,7 @@ export async function sendResetPasswordEmail(
     `اسم المستخدم: ${username}`,
     `كلمة المرور المؤقتة: ${newPassword}`,
     "",
-    "سجّل الدخول باستخدام كلمة المرور هذه، ثم غيّرها من صفحة تغيير كلمة المرور إذا سمحت سياسة حسابك بذلك.",
+    "سجّل الدخول باستخدام كلمة المرور هذه. يمكنك تغييرها عبر نظام LTS بالانتقال إلى الملف الشخصي ← تغيير كلمة المرور.",
     "",
     `ملاحظة: يمكنك تغيير كلمة المرور بعد ${wait.ar} من وقت إعادة التعيين هذه.`,
     "",
@@ -226,7 +226,7 @@ export async function sendResetPasswordEmail(
         <tr><td style="padding:4px 12px 4px 0;color:#555">Username</td><td><strong>${escapeHtml(username)}</strong></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#555">Temporary password</td><td><strong>${escapeHtml(newPassword)}</strong></td></tr>
       </table>
-      <p>Sign in with this password, then change it from the password change page if your account policy allows it.</p>
+      <p>Sign in with this password. You can change it through the LTS System by navigating to <strong>Profile → Change Password</strong>.</p>
       <p style="margin:16px 0;padding:12px 14px;background:#f0f9fc;border-left:3px solid #1EACD1;font-size:14px;">
         <strong>Note:</strong> You can change your password after ${escapeHtml(wait.en)} from the time of this reset.
       </p>
@@ -242,7 +242,7 @@ export async function sendResetPasswordEmail(
         <tr><td style="padding:4px 0 4px 12px;color:#555;text-align:right;">اسم المستخدم</td><td style="text-align:right;"><strong>${escapeHtml(username)}</strong></td></tr>
         <tr><td style="padding:4px 0 4px 12px;color:#555;text-align:right;">كلمة المرور المؤقتة</td><td style="text-align:right;"><strong>${escapeHtml(newPassword)}</strong></td></tr>
       </table>
-      <p>سجّل الدخول باستخدام كلمة المرور هذه، ثم غيّرها من صفحة تغيير كلمة المرور إذا سمحت سياسة حسابك بذلك.</p>
+      <p>سجّل الدخول باستخدام كلمة المرور هذه. يمكنك تغييرها عبر نظام LTS بالانتقال إلى <strong>الملف الشخصي ← تغيير كلمة المرور</strong>.</p>
       <p style="margin:16px 0;padding:12px 14px;background:#f0f9fc;border-right:3px solid #1EACD1;font-size:14px;text-align:right;">
         <strong>ملاحظة:</strong> يمكنك تغيير كلمة المرور بعد ${escapeHtml(wait.ar)} من وقت إعادة التعيين هذه.
       </p>
