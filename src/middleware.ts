@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { applyCorsHeaders, corsPreflightResponse } from "@/lib/cors";
+import { corsPreflightResponse, setCorsHeaders } from "@/lib/cors";
 
 export function middleware(req: NextRequest) {
   if (req.method === "OPTIONS") {
     return corsPreflightResponse(req);
   }
 
-  return applyCorsHeaders(req, NextResponse.next());
+  const response = NextResponse.next();
+  setCorsHeaders(req, response);
+  return response;
 }
 
 export const config = {

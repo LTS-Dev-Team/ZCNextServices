@@ -4,7 +4,7 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ["ldapjs", "ldap-authentication"],
   },
-  output: 'standalone',
+  output: "standalone",
 };
 
 module.exports = nextConfig;
